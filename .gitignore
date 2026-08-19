@@ -1,0 +1,15 @@
+# Never commit secrets
+.env
+*.env
+*.key
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Output files (generated at runtime, not source code)
+alerts.csv
+site/data/alerts.json
+*.log

@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UK Distress Register</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,500;8..60,600&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="masthead">
+  <div class="masthead__inner">
+    <div class="masthead__title-block">
+      <p class="masthead__eyebrow">Companies House · automated scan</p>
+      <h1 class="masthead__title">UK Distress Register</h1>
+    </div>
+    <div class="stamp" aria-hidden="true">
+      <span>AUTOMATED SCAN</span>
+      <span class="stamp__rule"></span>
+      <span>NOT A DETERMINATION</span>
+    </div>
+  </div>
+  <div class="ledger-strip" id="ledgerStrip">
+    <div class="ledger-stat">
+      <span class="ledger-stat__label">Last run</span>
+      <span class="ledger-stat__value" id="statGeneratedAt">—</span>
+    </div>
+    <div class="ledger-stat">
+      <span class="ledger-stat__label">Companies scanned</span>
+      <span class="ledger-stat__value" id="statScanned">—</span>
+    </div>
+    <div class="ledger-stat">
+      <span class="ledger-stat__label">Open flags</span>
+      <span class="ledger-stat__value" id="statAlerts">—</span>
+    </div>
+  </div>
+</header>
+
+<main class="content">
+
+  <section class="notice" role="note">
+    Every row links to the primary Companies House record it came from.
+    Flags are candidate signals for review, not conclusions about any
+    company. Data covers UK company filings only, see the project
+    README for current scope.
+  </section>
+
+  <section class="controls" aria-label="Filter results">
+    <label class="control">
+      <span>Indicator</span>
+      <select id="filterIndicator">
+        <option value="">All</option>
+      </select>
+    </label>
+    <label class="control">
+      <span>Confidence</span>
+      <select id="filterConfidence">
+        <option value="">All</option>
+      </select>
+    </label>
+    <label class="control control--search">
+      <span>Company number</span>
+      <input type="text" id="filterCompany" placeholder="e.g. 00445790">
+    </label>
+  </section>
+
+  <section aria-live="polite">
+    <table class="register" id="registerTable">
+      <thead>
+        <tr>
+          <th scope="col">Company</th>
+          <th scope="col">Indicator</th>
+          <th scope="col">Detail</th>
+          <th scope="col">Confidence</th>
+          <th scope="col">Detected</th>
+          <th scope="col">Source</th>
+        </tr>
+      </thead>
+      <tbody id="registerBody">
+        <tr><td colspan="6" class="state-msg">Loading register…</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+</main>
+
+<footer class="footer">
+  <p>Generated automatically from public Companies House data. No individual
+  officer or director data is collected or displayed. Internal proactive
+  flagging tool, requires analyst review before any escalation.</p>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>
