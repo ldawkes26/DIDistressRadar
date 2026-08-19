@@ -5,11 +5,15 @@ charges, insolvency) for two combined sources of companies:
   1. watchlist.csv - your manually curated list, always fully checked
      every run, no cap.
   2. data/flagged_companies.csv - a CANDIDATE list produced by
-     bulk_scan.py's full-register pre-filter. Only company numbers and
-     names, no alerts, see bulk_scan.py for why. This list can still be
-     large, so it is not fully processed every run. Instead this script
-     works through it in rotating daily batches, tracked by a cursor
-     file, so the whole backlog gets covered over several runs.
+     bulk_scan.py's full-register pre-filter, ordered largest-company-
+     first (using Accounts.AccountCategory as a size proxy, since
+     turnover itself often isn't disclosed at all under UK small/micro
+     company filing exemptions). Only company numbers and names, no
+     alerts, see bulk_scan.py for why. This list can still be large, so
+     it is not fully processed every run. Instead this script works
+     through it in rotating daily batches, tracked by a cursor file,
+     so the whole backlog gets covered over several runs, larger
+     companies first within each pass through the list.
 
 Because only a subset of companies get checked on any given run, this
 script maintains a small persistent store of the latest CONFIRMED
@@ -115,9 +119,13 @@ def process_company(client, company_number):
     officers_response = client.officers(company_number)
     charges_response = client.charges(company_number)
     insolvency_response = client.insolvency(company_number)
-    return run_all_detectors(
+    alerts = run_all_detectors(
         company_number, profile, officers_response, charges_response, insolvency_response
     )
+    company_name = (profile or {}).get("company_name", "")
+    for alert in alerts:
+        alert["company_name"] = company_name
+    return alerts
 
 
 def main():
@@ -183,7 +191,7 @@ def main():
     all_alerts = [alert for alerts in known_alerts.values() for alert in alerts]
 
     fieldnames = [
-        "company_number", "indicator", "detail",
+        "company_number", "company_name", "indicator", "detail",
         "evidence_url", "confidence", "detected_at",
     ]
     with open(args.output, "w", newline="", encoding="utf-8") as f:
