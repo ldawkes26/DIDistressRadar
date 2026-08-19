@@ -61,8 +61,8 @@
       </select>
     </label>
     <label class="control control--search">
-      <span>Company number</span>
-      <input type="text" id="filterCompany" placeholder="e.g. 00445790">
+      <span>Company (name or number)</span>
+      <input type="text" id="filterCompany" placeholder="e.g. Acme or 00445790">
     </label>
   </section>
 
@@ -71,6 +71,7 @@
       <thead>
         <tr>
           <th scope="col">Company</th>
+          <th scope="col">Number</th>
           <th scope="col">Indicator</th>
           <th scope="col">Detail</th>
           <th scope="col">Confidence</th>
@@ -79,7 +80,7 @@
         </tr>
       </thead>
       <tbody id="registerBody">
-        <tr><td colspan="6" class="state-msg">Loading register…</td></tr>
+        <tr><td colspan="7" class="state-msg">Loading register…</td></tr>
       </tbody>
     </table>
   </section>
