@@ -1,17 +1,3 @@
-
-/
-
-
-
-
-
-
-
-
-
-
-
-Scan and publish · YML
 name: Scan and publish register
  
 on:
@@ -79,4 +65,3 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
- 
