@@ -1,165 +1,162 @@
-# Distress Early-Warning Tool, Phase 1: Companies House Scanner
+# Distress Early-Warning Tool: Companies House Scanner + Full-Register Bulk Pass
 
-Working prototype covering the free, UK-native part of the architecture
-document (Section 3, Tier 1). Pulls company profile, officer, charges,
-and insolvency data from the Companies House API for a watchlist of
-companies and flags a first set of distress indicators.
+Two-tier pipeline:
 
-Runs automatically on a schedule via GitHub Actions and publishes
-results to a static public dashboard (GitHub Pages). Output is
-company-level only: no officer or director names are collected or
-displayed anywhere in this pipeline, see the "No individual data"
-section below.
+1. **Detailed pass** (`main.py`, daily): the original per-company REST
+   checks, profile, officers, charges, insolvency, against your curated
+   `watchlist.csv` plus a rotating batch from the bulk-flagged backlog.
+2. **Bulk pass** (`bulk_scan.py`, monthly): downloads Companies House's
+   free full-register snapshot (~5 million companies) and computes
+   company-status and filing-overdue flags across the whole register.
+   This is the only realistic way to cover the full register, the REST
+   API's rate limit makes a per-company crawl of 5 million companies
+   take on the order of months, and Companies House explicitly
+   discourages that kind of bulk crawling through the API.
 
-## What this phase covers
+Every alert, from either pass, remains company-level only: no officer
+or director names are collected or displayed anywhere in this
+pipeline, see "No individual data" below.
 
-From the Section 2 taxonomy:
+## Why there's a rotating batch, not "scan everything daily"
 
-- Accounts overdue / confirmation statement overdue (filing default)
-- Company status change (administration, liquidation, receivership,
-  voluntary arrangement, insolvency proceedings)
-- Officer resignation clustering (2+ resignations within 90 days,
-  both window and cluster size are configurable in `indicators.py`)
-- New registered charges within the last 90 days
-- Open insolvency cases
+The bulk pass can realistically flag tens of thousands of companies
+(a few percent of 5 million is still a lot). The detailed REST checks
+are still rate-limited, so processing that whole backlog in one run
+isn't possible either. `main.py` instead works through it in batches
+(`--max-flagged-per-run`, default 500) using a cursor file
+(`data/detail_scan_cursor.json`) that rotates forward each run, so
+the backlog gets covered over time rather than the job failing or
+running for days. Your watchlist companies are never subject to this
+cap, they're checked in full every run.
 
-## What this phase does NOT cover yet (later phases)
+Until a flagged company's turn comes up in the detailed queue, the
+dashboard still shows its bulk-level alert (status/overdue flags),
+just not the officer-cluster/charges/insolvency detail yet. That's
+intentional, not a bug: something is better than nothing while it
+waits its turn.
 
-- Auditor resignation / qualified or going-concern audit opinions:
-  these require parsing the text of filed accounts documents, not
-  just filing metadata. Companies House returns a document link per
-  filing; extracting and reading that text (PDF or iXBRL) is phase 2.
-- Insolvency notices from The Gazette (separate API/data source)
-- Regulatory disclosures from RNS / the FCA National Storage Mechanism
-  (profit warnings, trading updates, listing suspensions, PDMR dealing)
-- Financial ratio analysis and debt maturity (would need a separate
-  financial data source, not in scope for this build)
-- News monitoring
-- The dashboard/alerting layer and audit trail described in the
-  architecture document Section 4, layers 5 and 6. This phase writes
-  a flat CSV; a persistent store and review workflow come later.
+## What the bulk pass does and doesn't cover
+
+| Indicator | Bulk pass (all 5M companies) | Detailed pass (watchlist + rotating batch) |
+|---|---|---|
+| Company status (administration, liquidation, etc.) | Yes | Yes (fresher, live) |
+| Accounts / confirmation statement overdue | Yes (approximate, from snapshot dates) | Yes (live, authoritative) |
+| Officer resignation clustering | No, not in the bulk snapshot | Yes |
+| New registered charges | No, not in the bulk snapshot | Yes |
+| Insolvency case detail | No, not in the bulk snapshot | Yes |
+
+Companies House does publish a separate officers bulk file, but it
+is **not self-serve**: you have to individually request it from
+Companies House and they email you a private download link. That's a
+manual, named process, not something this pipeline can pull on a
+schedule, so officer data stays confined to the detailed pass only.
+
+## What I could not verify from this environment, flagged explicitly
+
+I built `bulk_scan.py` against Companies House's documented file
+format, but I have no network access here and could not download and
+test it against a live snapshot. Specific things to check on your
+first real run:
+
+- **CompanyStatus string matching.** The script matches status values
+  by case-insensitive substring (`liquidat`, `administrat`, `receiv`,
+  `voluntary arrangement`, `insolvency`) rather than an exact list,
+  since I couldn't confirm the precise current string values against
+  live data. Check a sample of flagged rows after the first bulk run
+  and tighten `WATCH_STATUS_SUBSTRINGS` in `bulk_scan.py` if it's
+  over- or under-matching.
+- **Confirmation statement column name.** This field has been renamed
+  at least once over the life of this file (`Returns.NextDueDate` vs
+  `ConfStmtNextDueDate`). The script checks both, but confirm against
+  your actual downloaded header row.
+- **Date format.** Assumed `DD/MM/YYYY` based on documented samples.
+  If a meaningful fraction of dates fail to parse, check this against
+  your real file.
+- **Column name whitespace.** This file has a known, longstanding
+  quirk where some header names carry a leading space. The script
+  strips whitespace from headers to guard against this, but hasn't
+  been tested against a live download.
+- **Download size and timing.** The snapshot zip has historically been
+  several hundred MB (multi-GB unzipped, ~5 million rows). I can't
+  confirm current size or how long the download/parse takes on a
+  GitHub-hosted runner from here, monitor the first bulk run's timing
+  and adjust if it's running close to GitHub Actions' job time limit.
+
+None of this is a reason not to run it, but treat the first real bulk
+run as a genuine test, not a formality, the same way you did for the
+Companies House REST setup earlier.
 
 ## Setup
 
-1. **Get a Companies House API key** (free):
-   - Register at https://developer.company-information.service.gov.uk/manage-applications
-   - Create an application, generate a key
-
-2. **Install dependencies** (Python 3.9+):
-   ```
-   pip install -r requirements.txt
-   ```
-
-3. **Set your API key as an environment variable** (do not hardcode it
-   anywhere, and never commit it to a repository):
-   ```
-   export CH_API_KEY="your_key_here"      # macOS/Linux
-   setx CH_API_KEY "your_key_here"        # Windows (new terminal needed after)
-   ```
-
-4. **Build your watchlist**: edit `watchlist.csv` with the company
-   numbers you want to monitor (find these via the Companies House
-   website search, or the `search_companies` method in `ch_client.py`).
-   The sample row is a placeholder, replace it before running.
+1. **Companies House API key**: unchanged from before, see the
+   original setup steps, `CH_API_KEY` as a repository secret.
+2. **Install dependencies**: `pip install -r requirements.txt`
+3. **Watchlist**: edit `watchlist.csv` as before, this is your always-
+   checked curated list, independent of the bulk backlog.
 
 ## Run locally
 
+Detailed pass only (uses whatever bulk data already exists, if any):
 ```
-python main.py --watchlist watchlist.csv --output alerts.csv --json-output site/data/alerts.json
+python main.py
 ```
 
-Console output shows progress per company. Results are written to two
-places with identical content: `alerts.csv` (for local review) and
-`site/data/alerts.json` (consumed by the dashboard). Columns/fields:
-`company_number`, `indicator`, `detail`, `evidence_url`, `confidence`,
-`detected_at`. Every row links back to the Companies House record it
-came from, consistent with the "citation, not conclusion" principle in
-the architecture document.
+Bulk pass (downloads the full register snapshot, several hundred MB,
+takes some minutes):
+```
+python bulk_scan.py
+```
+
+Both write into `data/` and `site/data/`, see Files below.
 
 ## Run automatically via GitHub Actions, with a public dashboard
 
-The workflow at `.github/workflows/scan-and-publish.yml` runs the scan
-daily (07:00 UTC by default, edit the cron line to change it) and
-publishes `site/` to GitHub Pages. Two things to set up once, after
-pushing this repo to GitHub:
+`.github/workflows/scan-and-publish.yml` now runs on two schedules:
+- **Daily, 07:00 UTC**: detailed pass only (`main.py`)
+- **Monthly, 1st of month, 03:00 UTC**: bulk pass (`bulk_scan.py`),
+  then the detailed pass on top of the freshly updated backlog
 
-1. **Add your API key as a repository secret**, not a file:
-   Settings → Secrets and variables → Actions → New repository secret,
-   name it `CH_API_KEY`, paste the key value. The workflow reads it
-   from there, it is never written to any file in the repo.
+You can also trigger a run manually from the Actions tab; there's a
+`run_bulk` checkbox on the manual trigger if you want to force a bulk
+run outside its monthly schedule (useful for testing).
 
-2. **Enable GitHub Pages from GitHub Actions**:
-   Settings → Pages → Source → select "GitHub Actions". No further
-   configuration needed, the workflow's `deploy-pages` step handles
-   the rest.
+Same one-time setup as before: `CH_API_KEY` as a repository secret,
+Pages source set to "GitHub Actions" in Settings > Pages.
 
-You can also trigger a run manually any time from the Actions tab
-(the workflow has `workflow_dispatch` enabled), useful for testing
-before waiting for the first scheduled run.
-
-The workflow also uploads `alerts.csv` as a workflow artifact (90-day
-retention) as a convenience for analyst review, in addition to
-publishing the same data to the dashboard.
+One change from before: **the workflow now commits files back to the
+repo** (`data/flagged_companies.csv`, `data/bulk_alerts.json`,
+`data/detail_scan_cursor.json`), since these need to persist between
+runs, unlike `alerts.csv` and `site/data/alerts.json` which are still
+fully regenerated each time and stay out of git. This needed the
+workflow's `contents` permission changed from `read` to `write`,
+already reflected in the workflow file.
 
 ## No individual data
 
-This build deliberately does not collect or display officer or
-director names anywhere, including in the officer-resignation-cluster
-indicator, which reports only a count and date range. This matters
-more than it did for a private/internal-only version of this tool
-since the dashboard is public: see `indicators.py` for where this is
-enforced in code. If you extend the detectors, keep that boundary,
-company-level signals only, no individual-level output.
-
-Two separate points remain worth keeping in mind even with names
-removed, neither of which this code can resolve for you:
-- The underlying Companies House data itself (officers, PSC register)
-  is more granular than most jurisdictions' equivalents. This code
-  only reads it to compute a company-level signal and discards names
-  before writing output, it does not persist or display the
-  underlying individual-level records.
-- A public "distress flag" against a named company, even sourced
-  entirely from public filings, is a stronger public statement than a
-  private analyst-review alert. That was your call to make and you've
-  made it, flagging it here only so it's written down alongside the
-  rest of this document's assumptions.
+Unchanged from before: no officer or director names are ever
+collected or written anywhere in this pipeline. The bulk snapshot
+itself contains no individual data at all (it's company-level fields
+only), so the full-register pass doesn't introduce any new exposure
+on that front. See `indicators.py` for where the detailed pass
+enforces this.
 
 ## Files
 
-- `ch_client.py` — API client, handles auth and rate limiting (throttled
-  to stay under the published 600 requests/5 min Companies House limit)
-- `indicators.py` — detection logic, one function per indicator, no
-  individual-level data collected or output
-- `main.py` — orchestrates the watchlist scan, writes CSV and dashboard JSON
-- `watchlist.csv` — your list of companies to monitor
+- `ch_client.py` — REST API client, rate-limited
+- `indicators.py` — detailed-pass detection logic, no individual data
+- `main.py` — orchestrates watchlist + rotating bulk-backlog batch,
+  merges in bulk-level alerts, writes CSV and dashboard JSON
+- `bulk_scan.py` — full-register monthly bulk pass
+- `watchlist.csv` — your always-checked curated list
+- `data/flagged_companies.csv` — bulk-flagged companies (generated,
+  committed to the repo so it persists between runs)
+- `data/bulk_alerts.json` — bulk-level alerts (generated, committed)
+- `data/detail_scan_cursor.json` — rotation position in the backlog
+  (generated, committed)
 - `requirements.txt` — dependencies
-- `site/index.html`, `site/style.css`, `site/app.js` — static dashboard,
-  reads `site/data/alerts.json` at load time
-- `.github/workflows/scan-and-publish.yml` — scheduled scan + Pages deploy
-- `.gitignore` — keeps `alerts.csv` and the generated `site/data/alerts.json`
-  out of version control (regenerated each run, not source code)
-
-## Before operational use
-
-This is a first-phase prototype, not yet reviewed against A&M's IT
-security or legal/compliance requirements. Two points from the
-architecture document apply directly to this code:
-
-- **Individual data handling (Section 7):** the officers endpoint
-  returns identifiable individuals. This build only persists what is
-  needed for the resignation-clustering indicator (name, resignation
-  date) and does not build any standing individual-level profile. If
-  you extend this, keep that boundary.
-- **Human review (Section 4, layer 6):** this script produces a flagged
-  alert feed only. Nothing here escalates automatically. Route
-  `alerts.csv` to analyst review before any further action.
-
-## Suggested next build step
-
-Given the phase-2 list above, the highest-value next addition is
-probably The Gazette insolvency notice feed, since it is free, UK-native,
-and covers a distress category (administration/CVA/winding-up) this
-phase only partially catches via company status. Auditor-opinion and
-going-concern text extraction is the more technically involved next
-step (requires document parsing), so I'd sequence that after Gazette
-integration unless you'd prioritize differently.
+- `site/index.html`, `site/style.css`, `site/app.js` — static dashboard
+- `.github/workflows/scan-and-publish.yml` — daily + monthly schedules,
+  Pages deploy
+- `.gitignore` — keeps `alerts.csv` and `site/data/alerts.json` out of
+  version control (fully regenerated every run); does NOT exclude the
+  `data/` files above, those are meant to persist in the repo
