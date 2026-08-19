@@ -1,24 +1,5 @@
-
-/
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-Scan and publish · YML
 name: Scan and publish register
- 
+
 on:
   schedule:
     # Daily detailed pass: watchlist + a rotating batch of the bulk-flagged backlog.
@@ -32,31 +13,31 @@ on:
         description: "Also run the full-register bulk scan this time"
         type: boolean
         default: false
- 
+
 permissions:
   contents: write
   pages: write
   id-token: write
- 
+
 concurrency:
   group: "pages"
   cancel-in-progress: false
- 
+
 jobs:
   scan:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
- 
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
- 
+
       - name: Install dependencies
         run: pip install -r requirements.txt
- 
+
       - name: Decide whether to run the bulk scan this time
         id: bulk_check
         run: |
@@ -65,11 +46,11 @@ jobs:
           else
             echo "run_bulk=false" >> "$GITHUB_OUTPUT"
           fi
- 
+
       - name: Run full-register bulk scan
         if: steps.bulk_check.outputs.run_bulk == 'true'
         run: python bulk_scan.py
- 
+
       - name: Commit bulk scan output
         if: steps.bulk_check.outputs.run_bulk == 'true'
         run: |
@@ -78,12 +59,12 @@ jobs:
           git add data/flagged_companies.csv
           git commit -m "Monthly bulk scan update" || echo "Nothing to commit"
           git push
- 
+
       - name: Run detailed scan
         env:
           CH_API_KEY: ${{ secrets.CH_API_KEY }}
         run: python main.py
- 
+
       - name: Commit detail-scan state
         run: |
           git config user.name "github-actions[bot]"
@@ -91,22 +72,22 @@ jobs:
           git add data/detail_scan_cursor.json data/known_alerts.json 2>/dev/null || true
           git commit -m "Update detail scan state" || echo "Nothing to commit"
           git push
- 
+
       - name: Upload analyst CSV as a workflow artifact
         uses: actions/upload-artifact@v4
         with:
           name: alerts-csv
           path: alerts.csv
           retention-days: 90
- 
+
       - name: Configure Pages
         uses: actions/configure-pages@v5
- 
+
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: site
- 
+
   deploy:
     needs: scan
     runs-on: ubuntu-latest
@@ -117,4 +98,3 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
- 
