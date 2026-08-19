@@ -55,6 +55,36 @@ WATCH_STATUS_SUBSTRINGS = [
     "insolvency",
 ]
 
+# Accounts.AccountCategory as a size proxy, since turnover itself often
+# isn't disclosed at all (micro-entity and small-company accounts don't
+# require a P&L). Lower number = larger/higher priority. Based on
+# documented category values, not independently verified against a
+# live download, check the account_category column in your output
+# against real values and adjust this ranking if categories you'd
+# expect to rank higher/lower than shown here.
+ACCOUNT_CATEGORY_PRIORITY = {
+    "group": 1,
+    "full": 2,
+    "medium": 3,
+    "audited abridged": 3,
+    "small": 4,
+    "total exemption full": 4,
+    "partial exemption": 4,
+    "audit exemption subsidiary": 5,
+    "abridged": 5,
+    "micro entity": 6,
+    "total exemption small": 6,
+    "dormant": 7,
+    "no accounts filed": 8,
+    "accounts type not available": 8,
+}
+DEFAULT_ACCOUNT_CATEGORY_PRIORITY = 9  # unrecognised/blank values sink to the bottom
+
+
+def account_category_priority(row):
+    category = (row.get("Accounts.AccountCategory") or "").strip().lower()
+    return ACCOUNT_CATEGORY_PRIORITY.get(category, DEFAULT_ACCOUNT_CATEGORY_PRIORITY)
+
 # Only count a company as a bulk-flagged candidate if overdue by more
 # than this many days, not merely overdue at all. Tune based on the
 # printed candidate count on your first real run.
@@ -150,7 +180,7 @@ def run(snapshot_url, flagged_csv_path):
     as_of_date = datetime.now(timezone.utc).date()
 
     total_rows = 0
-    candidates = []  # (company_number, company_name, reasons_str)
+    candidates = []  # (priority, company_number, company_name, account_category, reasons_str)
 
     for row in iter_csv_rows(zip_path):
         total_rows += 1
@@ -168,18 +198,27 @@ def run(snapshot_url, flagged_csv_path):
 
         if reasons:
             company_name = (row.get("CompanyName") or "").strip()
-            candidates.append((company_number, company_name, ";".join(reasons)))
+            account_category = (row.get("Accounts.AccountCategory") or "").strip()
+            priority = account_category_priority(row)
+            candidates.append((priority, company_number, company_name, account_category, ";".join(reasons)))
 
         if total_rows % 500000 == 0:
             print(f"  processed {total_rows:,} rows, {len(candidates):,} candidates so far")
 
+    # Sort by priority ascending, larger/higher-priority companies first.
+    # This is what makes the detailed pass's rotation check bigger
+    # companies earlier in each cycle through the backlog.
+    candidates.sort(key=lambda c: c[0])
+
     os.makedirs(os.path.dirname(flagged_csv_path) or ".", exist_ok=True)
     with open(flagged_csv_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
-        writer.writerow(["company_number", "company_name", "bulk_reasons"])
-        writer.writerows(candidates)
+        writer.writerow(["company_number", "company_name", "account_category", "bulk_reasons"])
+        for _priority, number, name, account_category, reasons_str in candidates:
+            writer.writerow([number, name, account_category, reasons_str])
 
     print(f"\nDone. {total_rows:,} companies in snapshot, {len(candidates):,} candidates written.")
+    print(f"Candidates ordered largest-first by Accounts.AccountCategory (see account_category column).")
     print(f"Candidate list: {flagged_csv_path}")
     if len(candidates) > LARGE_CANDIDATE_WARNING_THRESHOLD:
         print(
