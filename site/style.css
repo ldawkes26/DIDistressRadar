@@ -203,9 +203,15 @@ table.register {
   background: #EFEEE6;
 }
 
+.cell-company-name {
+  font-weight: 500;
+  max-width: 16rem;
+}
+
 .cell-company {
   font-family: var(--font-mono);
   white-space: nowrap;
+  color: var(--ink-soft);
 }
 
 .cell-indicator {
