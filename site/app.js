@@ -27,7 +27,7 @@ async function loadData() {
     populateFilterOptions();
     render();
   } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="6" class="state-msg">
+    tbody.innerHTML = `<tr><td colspan="7" class="state-msg">
       Could not load register data (${escapeHtml(String(err.message || err))}).
       The first scheduled scan may not have run yet.
     </td></tr>`;
@@ -86,12 +86,16 @@ function render() {
   const rows = state.alerts.filter(a => {
     if (indicator && a.indicator !== indicator) return false;
     if (confidence && a.confidence !== confidence) return false;
-    if (company && !a.company_number.toLowerCase().includes(company.toLowerCase())) return false;
+    if (company) {
+      const needle = company.toLowerCase();
+      const haystack = `${a.company_number} ${a.company_name || ""}`.toLowerCase();
+      if (!haystack.includes(needle)) return false;
+    }
     return true;
   });
 
   if (rows.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="6" class="state-msg">
+    tbody.innerHTML = `<tr><td colspan="7" class="state-msg">
       No flags match the current filters.
     </td></tr>`;
     return;
@@ -102,6 +106,7 @@ function render() {
 
   tbody.innerHTML = rows.map(a => `
     <tr>
+      <td class="cell-company-name">${escapeHtml(a.company_name || "—")}</td>
       <td class="cell-company">${escapeHtml(a.company_number)}</td>
       <td class="cell-indicator">${escapeHtml(labelize(a.indicator))}</td>
       <td>${escapeHtml(a.detail)}</td>
