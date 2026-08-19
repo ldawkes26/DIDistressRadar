@@ -4,6 +4,15 @@ charges, insolvency) for two combined sources of companies:
 
   1. watchlist.csv - your manually curated list, always fully checked
      every run, no cap.
+  1b. data/lse_priority_companies.csv - LSE Main Market, UK-incorporated
+     companies (a proxy for FTSE All-Share membership, see
+     lse_priority.py), matched to Companies House numbers. Treated the
+     same as watchlist.csv: always fully checked every run, no cap,
+     since large listed companies rarely trip the bulk pre-filter's
+     distress signals until something has already gone seriously
+     wrong, by which point it's too late for early warning. At ~650
+     companies, this comfortably fits within the rate limit alongside
+     the rest of each run's checks.
   2. data/flagged_companies.csv - a CANDIDATE list produced by
      bulk_scan.py's full-register pre-filter, ordered largest-company-
      first (using Accounts.AccountCategory as a size proxy, since
@@ -60,6 +69,25 @@ def load_company_csv(path):
         for row in reader:
             number = (row.get("company_number") or "").strip()
             if number:
+                companies.append(number)
+    return companies
+
+
+def load_lse_priority(path, include_needs_review=False):
+    """Like load_company_csv, but for lse_priority.py's output, which
+    carries a match_status column. Only 'exact' matches are trusted by
+    default, 'needs_review' matches were not confirmed by a human and
+    could be checking the wrong company, see lse_priority.py."""
+    if not os.path.exists(path):
+        return []
+    accepted_statuses = {"exact"} | ({"needs_review"} if include_needs_review else set())
+    companies = []
+    with open(path, newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            number = (row.get("company_number") or "").strip()
+            status = (row.get("match_status") or "").strip()
+            if number and status in accepted_statuses:
                 companies.append(number)
     return companies
 
@@ -131,6 +159,7 @@ def process_company(client, company_number):
 def main():
     parser = argparse.ArgumentParser(description="Companies House distress indicator scan")
     parser.add_argument("--watchlist", default="watchlist.csv")
+    parser.add_argument("--lse-priority", default="data/lse_priority_companies.csv")
     parser.add_argument("--flagged-csv", default="data/flagged_companies.csv")
     parser.add_argument("--known-alerts", default="data/known_alerts.json")
     parser.add_argument("--cursor-file", default="data/detail_scan_cursor.json")
@@ -148,6 +177,7 @@ def main():
         sys.exit(1)
 
     watchlist_companies = load_company_csv(args.watchlist)
+    lse_priority_companies = load_lse_priority(args.lse_priority)
     flagged_companies = load_company_csv(args.flagged_csv)
     known_alerts = load_known_alerts(args.known_alerts)
 
@@ -155,7 +185,7 @@ def main():
 
     seen = set()
     companies_to_check = []
-    for number in watchlist_companies + batch:
+    for number in watchlist_companies + lse_priority_companies + batch:
         if number not in seen:
             seen.add(number)
             companies_to_check.append(number)
