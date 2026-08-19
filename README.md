@@ -87,6 +87,30 @@ schedule, so officer data stays confined to the live detailed pass.
   large for the batch rotation to cycle through in reasonable time,
   either raise the threshold further or raise `--max-flagged-per-run`.
 
+## Prioritizing by company size
+
+Turnover itself often isn't on the public record at all, UK small and
+micro-entity accounts filing exemptions mean most private companies
+don't disclose a profit and loss account. As a proxy, `bulk_scan.py`
+uses `Accounts.AccountCategory` from the bulk snapshot (GROUP, FULL,
+MEDIUM, SMALL, MICRO ENTITY, DORMANT, etc.) to rank candidates and
+writes `data/flagged_companies.csv` in largest-company-first order.
+The ranking (`ACCOUNT_CATEGORY_PRIORITY` in `bulk_scan.py`) is based on
+documented category values, not independently verified against a live
+download, check the `account_category` column in your actual output
+and adjust the ranking if any category ranks higher or lower than you'd
+expect.
+
+**Important nuance on what this actually changes:** since the detailed
+pass rotates through the whole candidate list on a fixed cycle, size
+priority determines *when within each cycle* a company gets checked
+(bigger companies earlier), not how *often* it gets checked overall,
+every company still gets one check per full cycle through the backlog,
+regardless of size. If you want large companies checked more
+frequently than small ones, not just earlier, that's a different,
+weighted-rotation design, not what's built here, say so if that's
+actually what you need.
+
 ## Setup
 
 Unchanged: `CH_API_KEY` as a repository secret, `watchlist.csv` for
