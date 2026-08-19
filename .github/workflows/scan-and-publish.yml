@@ -1,60 +1,97 @@
 name: Scan and publish register
- 
+
 on:
   schedule:
-    # 07:00 UTC daily. Adjust to your preference; GitHub Actions cron
-    # can run several minutes late during high-load periods.
+    # Daily detailed pass: watchlist + a rotating batch of the bulk-flagged backlog.
     - cron: "0 7 * * *"
-  workflow_dispatch: {}
- 
+    # Monthly full-register bulk pass, 1st of month. Companies House
+    # publishes a new snapshot roughly monthly, so this matches that cadence.
+    - cron: "0 3 1 * *"
+  workflow_dispatch:
+    inputs:
+      run_bulk:
+        description: "Also run the full-register bulk scan this time"
+        type: boolean
+        default: false
+
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
- 
+
 concurrency:
   group: "pages"
   cancel-in-progress: false
- 
+
 jobs:
   scan:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
- 
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
- 
+
       - name: Install dependencies
         run: pip install -r requirements.txt
- 
-      - name: Run scan
+
+      - name: Decide whether to run the bulk scan this time
+        id: bulk_check
+        run: |
+          if [ "${{ github.event.schedule }}" = "0 3 1 * *" ] || [ "${{ inputs.run_bulk }}" = "true" ]; then
+            echo "run_bulk=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run_bulk=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run full-register bulk scan
+        if: steps.bulk_check.outputs.run_bulk == 'true'
+        run: python bulk_scan.py
+
+      - name: Commit bulk scan output
+        if: steps.bulk_check.outputs.run_bulk == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/flagged_companies.csv data/bulk_alerts.json
+          git commit -m "Monthly bulk scan update" || echo "Nothing to commit"
+          git push
+
+      - name: Run detailed scan
         env:
           CH_API_KEY: ${{ secrets.CH_API_KEY }}
+        run: python main.py
+
+      - name: Commit detail-scan cursor
         run: |
-          python main.py \
-            --watchlist watchlist.csv \
-            --output alerts.csv \
-            --json-output site/data/alerts.json
- 
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if [ -f data/detail_scan_cursor.json ]; then
+            git add data/detail_scan_cursor.json
+            git commit -m "Update detail scan cursor" || echo "Nothing to commit"
+            git push
+          else
+            echo "No cursor file yet (no bulk-flagged backlog exists on this run)."
+          fi
+
       - name: Upload analyst CSV as a workflow artifact
         uses: actions/upload-artifact@v4
         with:
           name: alerts-csv
           path: alerts.csv
           retention-days: 90
- 
+
       - name: Configure Pages
         uses: actions/configure-pages@v5
- 
+
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: site
- 
+
   deploy:
     needs: scan
     runs-on: ubuntu-latest
