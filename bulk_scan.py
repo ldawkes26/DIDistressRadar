@@ -159,9 +159,9 @@ def company_status_alert(company_number, row):
     return None
 
 
-def accounts_overdue_alert(company_number, row, as_of):
+def accounts_overdue_alert(company_number, row, as_of_date):
     next_due = _parse_date(row.get("Accounts.NextDueDate"))
-    if next_due and next_due < as_of:
+    if next_due and next_due.date() < as_of_date:
         return {
             "company_number": company_number,
             "indicator": "accounts_overdue",
@@ -176,11 +176,11 @@ def accounts_overdue_alert(company_number, row, as_of):
     return None
 
 
-def confirmation_statement_overdue_alert(company_number, row, as_of):
+def confirmation_statement_overdue_alert(company_number, row, as_of_date):
     # Column name has changed over the life of this file, check both.
     raw = row.get("ConfStmtNextDueDate") or row.get("Returns.NextDueDate")
     next_due = _parse_date(raw)
-    if next_due and next_due < as_of:
+    if next_due and next_due.date() < as_of_date:
         return {
             "company_number": company_number,
             "indicator": "confirmation_statement_overdue",
@@ -197,7 +197,7 @@ def confirmation_statement_overdue_alert(company_number, row, as_of):
 
 def run(snapshot_url, flagged_csv_path, bulk_alerts_path):
     zip_path = download_and_open_csv(resolve_snapshot_url(snapshot_url))
-    as_of = datetime.now(timezone.utc)
+    as_of_date = datetime.now(timezone.utc).date()
 
     all_bulk_alerts = []
     flagged_numbers = {}
@@ -212,8 +212,8 @@ def run(snapshot_url, flagged_csv_path, bulk_alerts_path):
         row_alerts = []
         for alert in (
             company_status_alert(company_number, row),
-            accounts_overdue_alert(company_number, row, as_of),
-            confirmation_statement_overdue_alert(company_number, row, as_of),
+            accounts_overdue_alert(company_number, row, as_of_date),
+            confirmation_statement_overdue_alert(company_number, row, as_of_date),
         ):
             if alert:
                 row_alerts.append(alert)
