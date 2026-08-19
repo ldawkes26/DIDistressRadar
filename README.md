@@ -111,6 +111,48 @@ frequently than small ones, not just earlier, that's a different,
 weighted-rotation design, not what's built here, say so if that's
 actually what you need.
 
+## Prioritizing LSE-listed (FTSE All-Share proxy) companies
+
+FTSE Russell's actual index membership wasn't something I could pull
+automatically with confidence, their factsheet is only refreshed
+within ~2 months of each quarterly review and I couldn't verify their
+terms permit scripted downloading. Instead, this uses LSE's own
+Issuer List (manually downloaded from
+londonstockexchange.com/reports?tab=issuers, no stable automatable
+URL was found there either, the page is a JavaScript app) as a proxy:
+Main Market listing, filtered to UK-incorporated companies only,
+since only those have Companies House numbers. From the July 2026
+list this gave 649 companies, close to FTSE All-Share's real ~600-640
+constituent count, a reasonable but not exact stand-in. It excludes
+253 Main Market companies incorporated in Guernsey, Jersey, BVI,
+Bermuda, and similar jurisdictions, common for investment trusts and
+REITs, that genuinely can't be checked against Companies House at all.
+
+**This is a manual, periodic process, not automated in the GitHub
+Actions workflow**, since the source file has to be downloaded by
+hand:
+
+1. Download the current Issuer List from
+   londonstockexchange.com/reports?tab=issuers, save it as
+   `data/lse_issuer_list.xlsx`
+2. Run `python lse_priority.py`, this calls the Companies House
+   search API (~650 calls, a few minutes) to match each issuer name to
+   a company number, writing `data/lse_priority_companies.csv`
+3. Check the `needs_review` rows in that output. Matching works by
+   normalizing both names (uppercase, strip PLC/LIMITED/LTD suffixes)
+   and requiring an exact match, anything that didn't match exactly
+   falls back to the top search result but is flagged, not
+   auto-trusted, since a wrong match means checking the wrong company
+   entirely. `main.py` only includes `exact` matches by default.
+4. Commit the resulting `data/lse_priority_companies.csv`, main.py
+   picks it up automatically from there, treated like `watchlist.csv`:
+   always fully checked every run, no batching, no cap.
+
+There's no fixed refresh schedule for this, LSE's issuer list doesn't
+change daily. Re-run the two steps above whenever you want to refresh
+it, quarterly is probably reasonable given how infrequently
+constituent lists change in practice.
+
 ## Setup
 
 Unchanged: `CH_API_KEY` as a repository secret, `watchlist.csv` for
@@ -161,6 +203,12 @@ pass enforces this.
   maintains the cumulative known-alerts store, writes CSV and dashboard JSON
 - `bulk_scan.py` — full-register candidate pre-filter, no alerts generated
 - `watchlist.csv` — your always-checked curated list
+- `lse_priority.py` — matches LSE Main Market/UK-incorporated issuers
+  to Companies House numbers (manual, periodic, see above)
+- `data/lse_issuer_list.xlsx` — source file you download by hand (not
+  committed unless you choose to, add to .gitignore if you'd rather not)
+- `data/lse_priority_companies.csv` — matched output (generated,
+  committed), treated like watchlist.csv by main.py
 - `data/flagged_companies.csv` — bulk pre-filter candidates (generated, committed)
 - `data/known_alerts.json` — cumulative confirmed alerts (generated, committed)
 - `data/detail_scan_cursor.json` — rotation position (generated, committed)
